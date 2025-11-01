@@ -179,13 +179,13 @@ class CSVEditor(QtWidgets.QMainWindow):
 
     def update_stats(self, df):
         if df is None or df.empty:
-            self.label.setText("Missing:\nN/A")
+            self.text_missing_stats.setText("Missing:\nN/A")
             return
         mis_values = df.isnull().sum()
         stats_text = "Missing Values:\n"
         mis_values = mis_values[mis_values > 0].sort_values(ascending=False).head(10)
         stats_text += "None!" if mis_values.empty else "\n".join([f"{col}: {count}" for col, count in mis_values.items()])
-        self.label.setText(stats_text)
+        self.text_missing_stats.setText(stats_text)
         
     def load_dataframe(self, df):
         """Loads the table from a DataFrame."""
