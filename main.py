@@ -2,13 +2,13 @@ import sys
 import csv
 import pandas as pd
 import numpy as np
-import re # --- NEW IMPORT for currency parsing ---
+import re # Make sure this import is at the top
 from PyQt5 import QtWidgets, uic, QtCore
 from PyQt5.QtWidgets import (QFileDialog, QTableWidgetItem, QPushButton, 
                              QMessageBox, QMenu, QUndoStack, QUndoCommand, QInputDialog)
 from PyQt5.QtGui import QColor
 
-# --- MODIFIED: BulkChangeCommand now stores BOTH highlight sets ---
+# --- (BulkChangeCommand class - No changes, but required) ---
 class BulkChangeCommand(QUndoCommand):
     """An undo command that stores the entire DataFrame AND highlight states."""
     def __init__(self, main_window, old_df, new_df, 
@@ -53,14 +53,11 @@ class CSVEditor(QtWidgets.QMainWindow):
         uic.loadUi("main.ui", self)
         
         self.HIGHLIGHT_COLOR = QColor(230, 240, 255) # Light blue
-        # --- NEW: Highlight color for assumed currency conversions ---
         self.ASSUMED_HIGHLIGHT_COLOR = QColor(255, 249, 196) # Light yellow
         
         self.changed_cells = set() # Stores (row, col) tuples
-        # --- NEW: Set for assumed highlights ---
         self.assumed_cells = set() 
         
-        # --- NEW: Hardcoded conversion rates relative to USD ---
         self.CONVERSION_RATES = {
             "$": 1.0,      # US Dollar
             "₹": 0.012,    # Indian Rupee (~83 INR to 1 USD)
@@ -135,7 +132,6 @@ class CSVEditor(QtWidgets.QMainWindow):
         return btn
         
     def set_item_and_highlight(self, row, col, text, assumed=False):
-        """Helper to create a new item, highlight it, and log the change."""
         item = QTableWidgetItem(str(text))
         if assumed:
             item.setBackground(self.ASSUMED_HIGHLIGHT_COLOR)
@@ -146,15 +142,12 @@ class CSVEditor(QtWidgets.QMainWindow):
         self.tableWidget.setItem(row, col, item)
 
     def apply_highlights(self):
-        """Iterates the master list and highlights all changed cells."""
         self.tableWidget.blockSignals(True)
-        # Apply yellow first
         for r, c in self.assumed_cells:
             if r < self.tableWidget.rowCount() and c < self.tableWidget.columnCount():
                 item = self.tableWidget.item(r, c)
                 if item:
                     item.setBackground(self.ASSUMED_HIGHLIGHT_COLOR)
-        # Apply blue over yellow (blue takes precedence)
         for r, c in self.changed_cells:
             if r < self.tableWidget.rowCount() and c < self.tableWidget.columnCount():
                 item = self.tableWidget.item(r, c)
@@ -177,15 +170,39 @@ class CSVEditor(QtWidgets.QMainWindow):
             data.append(row_data)
         return pd.DataFrame(data, columns=headers)
 
+    # --- THIS IS THE CORRECT update_stats FOR YOUR NEW UI ---
     def update_stats(self, df):
+        """Updates the new UI labels and text edit."""
         if df is None or df.empty:
-            self.text_missing_stats.setText("Missing:\nN/A")
+            # Assumes you named your new widgets in Designer:
+            # label_total_rows, label_total_cols, text_missing_stats
+            try:
+                self.label_total_rows.setText("0")
+                self.label_total_cols.setText("0")
+                self.text_missing_stats.setPlainText("N/A")
+            except AttributeError:
+                print("UI widgets not found. Did you name them 'label_total_rows', 'label_total_cols', and 'text_missing_stats' in Qt Designer?")
             return
-        mis_values = df.isnull().sum()
-        stats_text = "Missing Values:\n"
-        mis_values = mis_values[mis_values > 0].sort_values(ascending=False).head(10)
-        stats_text += "None!" if mis_values.empty else "\n".join([f"{col}: {count}" for col, count in mis_values.items()])
-        self.text_missing_stats.setText(stats_text)
+        
+        try:
+            # Set total rows and cols
+            self.label_total_rows.setText(str(df.shape[0]))
+            self.label_total_cols.setText(str(df.shape[1]))
+
+            # Set missing values
+            mis_values = df.isnull().sum()
+            mis_values = mis_values[mis_values > 0].sort_values(ascending=False)
+            
+            if mis_values.empty:
+                 stats_text = "None!"
+            else:
+                 stats_text = "\n".join([f"{col}: {count}" for col, count in mis_values.items()])
+            
+            # Use setPlainText for the QTextEdit
+            self.text_missing_stats.setPlainText(stats_text)
+            
+        except AttributeError:
+            print("UI widgets not found. Did you name them 'label_total_rows', 'label_total_cols', and 'text_missing_stats' in Qt Designer?")
         
     def load_dataframe(self, df):
         """Loads the table from a DataFrame."""
@@ -208,7 +225,6 @@ class CSVEditor(QtWidgets.QMainWindow):
         
         self.tableWidget.blockSignals(False)
         self.hide_options_buttons()
-        # Highlights and stats are now applied by the calling function (e.g., undo/redo)
 
     def on_cell_pressed(self, row, col):
         if not self.tableWidget.signalsBlocked():
@@ -237,7 +253,7 @@ class CSVEditor(QtWidgets.QMainWindow):
         old_assumed_cells = self.assumed_cells.copy()
         
         self.changed_cells.add((item.row(), item.column()))
-        self.assumed_cells.discard((item.row(), item.column())) # Manual edit removes "assumed"
+        self.assumed_cells.discard((item.row(), item.column()))
         
         new_cells = self.changed_cells.copy()
         new_assumed_cells = self.assumed_cells.copy()
@@ -266,7 +282,6 @@ class CSVEditor(QtWidgets.QMainWindow):
         self.hide_options_buttons()
 
     def show_col_menu(self):
-        """--- MODIFIED: Column menu with new 'Convert' and 'Find' ---"""
         menu = QMenu(self)
 
         impute_menu = menu.addMenu("Impute Missing")
@@ -280,14 +295,12 @@ class CSVEditor(QtWidgets.QMainWindow):
         remove_nulls_action = menu.addAction("Remove Rows with Nulls")
         menu.addSeparator()
         
-        # --- NEW: Convert Menu ---
         convert_menu = menu.addMenu("Convert")
         to_numeric_action = convert_menu.addAction("To Numeric Labels")
         currency_menu = convert_menu.addMenu("Convert Currency")
         to_inr_action = currency_menu.addAction("To Rupee (₹)")
         to_usd_action = currency_menu.addAction("To Dollar ($)")
         
-        # --- NEW: Find & Replace ---
         menu.addSeparator()
         find_replace_action = menu.addAction("Find & Replace")
         rename_col_action = menu.addAction("Rename Column")
@@ -297,7 +310,7 @@ class CSVEditor(QtWidgets.QMainWindow):
         
         menu.addSeparator()
         delete_col_action = menu.addAction("Delete Column")
-        delete_col_action.setObjectName("deleteAction") # For styling
+        delete_col_action.setObjectName("deleteAction")
 
         # Connect actions
         mean_action.triggered.connect(self.impute_mean)
@@ -342,7 +355,6 @@ class CSVEditor(QtWidgets.QMainWindow):
 
     # ---------------------- Preprocessing Actions ---------------------- #
     
-    # --- NEW: Remove Highlight Functions ---
     def remove_highlights_from_selection(self):
         if not self.current_selection: return
         old_df = self.get_dataframe()
@@ -455,26 +467,97 @@ class CSVEditor(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Renamed column to '{new_name}'")
         self.header_selected_col = None
         
+    def parse_value_for_impute(self, value_str):
+        """A simple parser to find a symbol and a numeric part."""
+        value_str = str(value_str).strip()
+        found_symbol = None
+        for symbol in self.CONVERSION_RATES:
+            if value_str.startswith(symbol) or value_str.endswith(symbol):
+                found_symbol = symbol
+                break
+        
+        # Remove all non-numeric characters except for decimal and minus sign
+        numeric_part = re.sub(r"[^0-9.-]", "", value_str)
+        return (found_symbol, numeric_part)
+
+    def analyze_column_currency(self, col_series):
+        """
+        Analyzes a column to see if it's a valid, single-type currency column.
+        Returns: (is_valid, detected_symbol, numeric_series)
+        """
+        detected_symbol = None
+        numeric_values = []
+        
+        for val in col_series:
+            if pd.isna(val) or str(val).strip() == "":
+                numeric_values.append(np.nan)
+                continue
+                
+            val_str = str(val).strip()
+            symbol, num_part = self.parse_value_for_impute(val_str)
+            
+            try:
+                # Try to convert the numeric part
+                numeric_val = float(num_part)
+                numeric_values.append(numeric_val)
+            except (ValueError, TypeError):
+                # This is a non-numeric string (e.g., "Alice")
+                return (False, None, None) # Not a valid numeric/currency column
+
+            # Check for symbol consistency
+            if symbol:
+                if detected_symbol is None:
+                    detected_symbol = symbol  # First symbol found
+                elif detected_symbol != symbol:
+                    # Found a *different* symbol (e.g., $ and ₹)
+                    return (False, None, None) # Mixed currency column
+        
+        # If we get here, the column is valid (all numbers, max one symbol)
+        return (True, detected_symbol, pd.Series(numeric_values))
+
     def impute_mean(self):
         if self.header_selected_col is None: return
+        
         old_df = self.get_dataframe()
         new_df = old_df.copy()
         col_name = new_df.columns[self.header_selected_col]
         old_cells = self.changed_cells.copy()
         old_assumed_cells = self.assumed_cells.copy()
-        
+        col = self.header_selected_col
+
         try:
-            numeric_col = pd.to_numeric(new_df[col_name], errors='coerce')
+            # --- NEW: Analyze the column first ---
+            is_valid, symbol, numeric_col = self.analyze_column_currency(new_df[col_name])
+            
+            if not is_valid:
+                # It might be a simple number column, try the old way
+                numeric_col_test = pd.to_numeric(new_df[col_name], errors='coerce')
+                if numeric_col_test.isnull().all():
+                    # It's a pure string column (like "Name")
+                    QMessageBox.critical(self, "Impute Error", f"Cannot calculate mean for a non-numeric or mixed-currency column ('{col_name}').")
+                    return
+                # It's a valid number column
+                symbol = None
+                numeric_col = numeric_col_test
+            
+            # --- Proceed with calculation ---
             mean_val = numeric_col.mean()
             if pd.isna(mean_val):
-                 self.statusBar().showMessage(f"Cannot calculate mean for non-numeric column '{col_name}'", 3000)
+                 self.statusBar().showMessage(f"Cannot calculate mean for column '{col_name}'", 3000)
                  return
             
+            new_value_str = ""
+            # Fill NaNs with the formatted mean
             for r, val in enumerate(numeric_col):
                 if pd.isna(val):
-                    new_df.iloc[r, self.header_selected_col] = mean_val
-                    self.changed_cells.add((r, self.header_selected_col))
-                    self.assumed_cells.discard((r, self.header_selected_col))
+                    # Format the new value
+                    new_value_str = f"{mean_val:,.2f}"
+                    if symbol:
+                        new_value_str = f"{symbol}{new_value_str}"
+                    
+                    new_df.iloc[r, col] = new_value_str
+                    self.changed_cells.add((r, col))
+                    self.assumed_cells.discard((r, col))
             
             self.load_dataframe(new_df)
             self.apply_highlights()
@@ -483,31 +566,55 @@ class CSVEditor(QtWidgets.QMainWindow):
             msg = f"Impute Mean on '{col_name}'"
             command = BulkChangeCommand(self, old_df, new_df, old_cells, self.changed_cells.copy(), old_assumed_cells, self.assumed_cells.copy(), msg)
             self.undo_stack.push(command)
-            self.statusBar().showMessage(f"Imputed column '{col_name}' with mean: {mean_val:.2f}", 3000)
+            self.statusBar().showMessage(f"Imputed column '{col_name}' with mean: {new_value_str}", 3000)
+        
         except Exception as e:
             self.statusBar().showMessage(f"Error imputing mean: {e}", 5000)
 
     def impute_median(self):
         if self.header_selected_col is None: return
+        
         old_df = self.get_dataframe()
         new_df = old_df.copy()
         col_name = new_df.columns[self.header_selected_col]
         old_cells = self.changed_cells.copy()
         old_assumed_cells = self.assumed_cells.copy()
-        
+        col = self.header_selected_col
+
         try:
-            numeric_col = pd.to_numeric(new_df[col_name], errors='coerce')
+            # --- NEW: Analyze the column first ---
+            is_valid, symbol, numeric_col = self.analyze_column_currency(new_df[col_name])
+            
+            if not is_valid:
+                # It might be a simple number column, try the old way
+                numeric_col_test = pd.to_numeric(new_df[col_name], errors='coerce')
+                if numeric_col_test.isnull().all():
+                    # It's a pure string column (like "Name")
+                    QMessageBox.critical(self, "Impute Error", f"Cannot calculate median for a non-numeric or mixed-currency column ('{col_name}').")
+                    return
+                # It's a valid number column
+                symbol = None
+                numeric_col = numeric_col_test
+            
+            # --- Proceed with calculation ---
             median_val = numeric_col.median()
             if pd.isna(median_val):
-                 self.statusBar().showMessage(f"Cannot calculate median for non-numeric column '{col_name}'", 3000)
+                 self.statusBar().showMessage(f"Cannot calculate median for column '{col_name}'", 3000)
                  return
-
+            
+            new_value_str = ""
+            # Fill NaNs with the formatted median
             for r, val in enumerate(numeric_col):
                 if pd.isna(val):
-                    new_df.iloc[r, self.header_selected_col] = median_val
-                    self.changed_cells.add((r, self.header_selected_col))
-                    self.assumed_cells.discard((r, self.header_selected_col))
-
+                    # Format the new value
+                    new_value_str = f"{median_val:,.2f}"
+                    if symbol:
+                        new_value_str = f"{symbol}{new_value_str}"
+                    
+                    new_df.iloc[r, col] = new_value_str
+                    self.changed_cells.add((r, col))
+                    self.assumed_cells.discard((r, col))
+            
             self.load_dataframe(new_df)
             self.apply_highlights()
             self.update_stats(new_df)
@@ -515,7 +622,8 @@ class CSVEditor(QtWidgets.QMainWindow):
             msg = f"Impute Median on '{col_name}'"
             command = BulkChangeCommand(self, old_df, new_df, old_cells, self.changed_cells.copy(), old_assumed_cells, self.assumed_cells.copy(), msg)
             self.undo_stack.push(command)
-            self.statusBar().showMessage(f"Imputed column '{col_name}' with median: {median_val}", 3000)
+            self.statusBar().showMessage(f"Imputed column '{col_name}' with median: {new_value_str}", 3000)
+        
         except Exception as e:
             self.statusBar().showMessage(f"Error imputing median: {e}", 5000)
 
@@ -577,8 +685,7 @@ class CSVEditor(QtWidgets.QMainWindow):
         old_assumed_cells = self.assumed_cells.copy()
 
         new_df = old_df.dropna(subset=[col_name]).reset_index(drop=True)
-        # Clear highlights - re-calculating is too complex for row deletions
-        self.changed_cells.clear() 
+        self.changed_cells.clear()
         self.assumed_cells.clear()
         
         self.load_dataframe(new_df)
@@ -655,7 +762,6 @@ class CSVEditor(QtWidgets.QMainWindow):
         old_assumed_cells = self.assumed_cells.copy()
         
         try:
-            # --- FIX: Use .str.lower() for case-insensitivity ---
             codes, uniques = pd.factorize(new_df[col_name].fillna('').astype(str).str.lower())
             new_df[col_name] = codes
             
@@ -674,24 +780,17 @@ class CSVEditor(QtWidgets.QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(f"Error converting labels: {e}", 5000)
             
-    # --- NEW: Currency Conversion Functions ---
-    
     def extract_currency_value(self, value_str):
-        """Extracts symbol and numeric value from a string."""
         if value_str is None or pd.isna(value_str):
             return None, None, False # Value, Symbol, HasSymbol
 
         value_str = str(value_str).strip()
-        
-        # 1. Check for known symbols
         found_symbol = None
         for symbol in self.CONVERSION_RATES:
             if value_str.startswith(symbol) or value_str.endswith(symbol):
                 found_symbol = symbol
                 break
         
-        # 2. Extract numeric part
-        # This regex removes symbols, commas, and keeps the decimal part
         numeric_part = re.sub(r"[^0-9.-]", "", value_str)
         if not numeric_part:
             return None, None, False
@@ -699,12 +798,11 @@ class CSVEditor(QtWidgets.QMainWindow):
         try:
             value = float(numeric_part)
         except ValueError:
-            return None, None, False # Not a valid number
+            return None, None, False
             
         if found_symbol:
             return value, found_symbol, True
         else:
-            # No symbol found, return value and assume base currency
             return value, "$", False # Assume base currency ($)
 
     def run_currency_conversion_prompt(self, target_symbol, target_name):
@@ -727,32 +825,25 @@ class CSVEditor(QtWidgets.QMainWindow):
         
         col = self.header_selected_col
         target_rate = self.CONVERSION_RATES[target_symbol]
-        
         something_changed = False
         
         for r in range(len(new_df)):
             value_str = new_df.iloc[r, col]
             value, symbol, has_symbol = self.extract_currency_value(value_str)
             
-            if value is None:
-                continue # Skip cells that aren't currency
+            if value is None: continue 
                 
-            from_rate = self.CONVERSION_RATES.get(symbol, 1.0) # Default to 1.0
-            
-            # (Value in Base) = value * from_rate
-            # (New Value) = (Value in Base) / target_rate
+            from_rate = self.CONVERSION_RATES.get(symbol, 1.0)
             converted_value = (value * from_rate) / target_rate
             new_value_str = f"{target_symbol}{converted_value:,.2f}"
             
-            # Update the DataFrame
             new_df.iloc[r, col] = new_value_str
             
-            # Log highlights
             if has_symbol:
                 self.changed_cells.add((r, col))
                 self.assumed_cells.discard((r, col))
             else:
-                self.assumed_cells.add((r, col)) # No symbol, so it's "assumed"
+                self.assumed_cells.add((r, col))
                 self.changed_cells.discard((r, col))
             something_changed = True
 
@@ -769,16 +860,12 @@ class CSVEditor(QtWidgets.QMainWindow):
         self.undo_stack.push(command)
         self.statusBar().showMessage(f"Converted column '{col_name}' to {target_name}.", 5000)
 
-    # --- NEW: Find & Replace Functions ---
     def run_find_replace_prompt(self):
         if self.header_selected_col is None: return
-        
         find_text, ok1 = QInputDialog.getText(self, "Find & Replace", "Text to find:")
-        if not ok1: return
-        
+        if not ok1 or not find_text: return
         replace_text, ok2 = QInputDialog.getText(self, "Find & Replace", f"Replace '{find_text}' with:")
         if not ok2: return
-            
         self.find_and_replace_in_col(find_text, replace_text)
 
     def find_and_replace_in_col(self, find_text, replace_text):
@@ -794,7 +881,6 @@ class CSVEditor(QtWidgets.QMainWindow):
         col = self.header_selected_col
         changes_made = 0
         
-        # We must iterate to log highlights
         for r in range(len(new_df)):
             cell_value = str(new_df.iloc[r, col] if pd.notna(new_df.iloc[r, col]) else "")
             if find_text in cell_value:
@@ -823,13 +909,13 @@ class CSVEditor(QtWidgets.QMainWindow):
         if not path: return
         try:
             df = pd.read_csv(path)
-            self.load_dataframe(df) # Loads without highlights
+            self.load_dataframe(df)
             self.update_stats(df)
             self.current_path = path
             self.statusBar().showMessage(f"Rows: {df.shape[0]}, Columns: {df.shape[1]} Loaded: {path}")
             self.undo_stack.clear()
             self.changed_cells.clear()
-            self.assumed_cells.clear() # Clear new set
+            self.assumed_cells.clear()
         except Exception as e:
             self.statusBar().showMessage(f"Error loading CSV: {e}", 5000)
 
@@ -846,7 +932,7 @@ class CSVEditor(QtWidgets.QMainWindow):
             self.statusBar().showMessage(f"Rows: {df.shape[0]}, Columns: {df.shape[1]} Saved: {path}")
             self.undo_stack.clear()
             self.changed_cells.clear()
-            self.assumed_cells.clear() # Clear new set
+            self.assumed_cells.clear()
             self.load_dataframe(df) # Reload to clear highlights
             self.update_stats(df)
         except Exception as e:
